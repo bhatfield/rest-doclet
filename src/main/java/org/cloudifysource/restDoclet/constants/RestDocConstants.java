@@ -187,6 +187,11 @@ public final class RestDocConstants {
 	public static final String RESPONSE_BODY_ANNOTATION = "ResponseBody";
 
 	/**
+	 *
+	 */
+	public static final String VALID_ANNOTATION = "Valid";
+
+	/**
 	 * 
 	 */
 	public static final String PATH_VARIABLE_ANNOTATION = "PathVariable";
@@ -287,7 +292,11 @@ public final class RestDocConstants {
 		/**
 		 * 
 		 */
-		RESPONSE_BODY, 
+		RESPONSE_BODY,
+		/**
+		 *
+		 */
+		VALID,
 		/**
 		 * 
 		 */
@@ -331,6 +340,8 @@ public final class RestDocConstants {
 				return REQUEST_BODY;
 			} else if (RESPONSE_BODY_ANNOTATION.equals(annotationName)) {
 				return RESPONSE_BODY;
+			} else if (VALID_ANNOTATION.equals(annotationName)) {
+				return VALID;
 			} else if (PATH_VARIABLE_ANNOTATION.equals(annotationName)) {
 				return PATH_VARIABLE;
 			} else if (JSON_RESPONSE_EXAMPLE_ANNOTATION.equals(annotationName)) {
@@ -369,6 +380,7 @@ public final class RestDocConstants {
 				return DocPossibleResponseStatusesAnnotation.class;
 			case REQUEST_BODY:
 			case RESPONSE_BODY:
+			case VALID:
 			case PATH_VARIABLE:
 			case CONTROLLER:
 			case INTERNAL_METHOD_ANNOTATION:

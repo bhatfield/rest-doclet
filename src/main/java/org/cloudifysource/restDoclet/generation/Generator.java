@@ -411,8 +411,10 @@ public class Generator {
 		String controllerClassName = classDoc.typeName();
 		DocRequestMappingAnnotation requestMappingAnnotation = Utils.getRequestMappingAnnotation(annotations);
 		if (requestMappingAnnotation == null) {
-			throw new IllegalArgumentException("controller class " + controllerClassName 
+			logger.log(Level.WARNING,
+					"controller class " + controllerClassName
 					+ " is missing request mapping annotation");
+			return null;
 		}
 		String[] uriArray = requestMappingAnnotation.getValue();
 		if (uriArray == null || uriArray.length == 0) {
@@ -425,8 +427,26 @@ public class Generator {
 
 			SortedMap<String, DocMethod> generatedMethods = generateMethods(classDoc.methods());
 			if (generatedMethods.isEmpty()) {
-				throw new IllegalArgumentException("controller class "
-						+ controller.getName() + " doesn't have methods.");
+				logger.log(Level.INFO,
+						"controller class "
+								+ controller.getName()
+								+ " doesn't have methods. Checking parent class...");
+
+				ClassDoc parent = classDoc.superclass();
+				while (parent != null) {
+					generatedMethods = generateMethods(parent.methods());
+					if (!generatedMethods.isEmpty()) {
+						break;
+					}
+					parent = parent.superclass();
+				}
+				if (generatedMethods.isEmpty()) {
+					logger.log(Level.WARNING,
+						"Could not find methods in "
+								+ controller.getName()
+								+ " controller class or its parent class(es)");
+					continue;
+				}
 			}
 			controller.setMethods(generatedMethods);
 			controller.setUri(uri);
@@ -462,6 +482,9 @@ public class Generator {
 			DocRequestMappingAnnotation requestMappingAnnotation = Utils
 					.getRequestMappingAnnotation(annotations);
 			String[] methodArray = requestMappingAnnotation.getMethod();
+			if (methodArray == null || methodArray.length <= 0) {
+				continue;
+			}
 			DocHttpMethod[] docHttpMethodArray = new DocHttpMethod[methodArray.length];
 			for (int i = 0; i < methodArray.length; i++) {
 				docHttpMethodArray[i] = generateHttpMethod(methodDoc,

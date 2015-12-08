@@ -136,6 +136,8 @@ public class DocParameter {
 				requestParamAnnotation = (DocRequestParamAnnotation) docAnnotation;
 			} else if (docAnnotationType == DocAnnotationTypes.REQUEST_BODY) {
 				requestBodyAnnotation = docAnnotation;
+			} else if (docAnnotationType == DocAnnotationTypes.VALID) {
+				// Do nothing
 			} else if (docAnnotationType != DocAnnotationTypes.PATH_VARIABLE) {
 				throw new IllegalArgumentException(
 						"Unsupported parameter annotation - " + annotationName);

@@ -7,7 +7,7 @@
 	</head>
 	<body>
 		#########################################################
-		## Controllers   
+		## Controllers
 		#########################################################
 		#foreach($docController in $controllers)
 			<div class="header">
@@ -19,15 +19,15 @@
 			</div>
 			<div class="separator"></div>
 			#########################################################
-			## Methods 
+			## Methods
 			#########################################################
 			#foreach($docMethod in $docController.getMethods().values())
 				#set($methodUri = $docController.getUri() + $docMethod.getUri())
-				<h2 id="REST_API-$methodUri"><a class="permalink" title="Get a permanent link to this section" href="#REST_API-$methodUri">$methodUri</a></h2>				
+				<h2 id="REST_API-$methodUri"><a class="permalink" title="Get a permanent link to this section" href="#REST_API-$methodUri">$methodUri</a></h2>
 				#if($docMethod.getDescription() && !$docMethod.getDescription().isEmpty())
 					<p><font color="#f7681a">$docMethod.getDescription()</font></p>
 				#end
-				## http methods 
+				## http methods
 				<h3>HTTP Methods</h3>
 				#foreach($httpMethod in $docMethod.getHttpMethods())
 					#set($httpMethodName = $httpMethod.getHttpMethodName())
@@ -36,7 +36,7 @@
 						<p>$httpMethod.getDescription()</p>
 					#end
 					#########################################################
-					## Parameters 
+					## Parameters
 					#########################################################
 					#set($params = $httpMethod.getAnnotatedParams())
 					#if($params && !$params.isEmpty())
@@ -59,20 +59,20 @@
 									<td>$docParameter.getType().simpleTypeName()</td>
 									<td>$docParameter.isRequired()</td>
 									<td>$docParameter.getLocation()</td>
-                                    #if($docParameter.getDescription())
-                                        <td>$docParameter.getDescription().replace(".", "")</td>
-                                    #else
-                                        <td></td>
-                                    #end
+									#if($docParameter.getDescription())
+										<td>$docParameter.getDescription().replace(".", "")</td>
+									#else
+										<td></td>
+									#end
 								</tr>
 							#end
 						</table>
 					#end
 					#########################################################
-					## Request 
+					## Request
 					#########################################################
 					#set($requestExample = $httpMethod.getRequestExample())
-					#if($requestExample) 
+					#if($requestExample)
 						<h3>Request</h3>
 							<div class="panel">
 								<div class="panelHeader">
@@ -92,9 +92,9 @@
 						<p>Request has no body.</p>
 					#end
 					#########################################################
-					## Response 
+					## Response
 					#########################################################
-					#set($responseExample = $httpMethod.getResponseExample())					
+					#set($responseExample = $httpMethod.getResponseExample())
 					#if($responseExample)
 						<h3>Response</h3>
 							<div class="panel">
@@ -103,9 +103,9 @@
 								</div>
 								#set($returnDetails = $httpMethod.getReturnDetails())
 								#if($returnDetails && $returnDetails.getDescription())
-								    <p>
-                                        $returnDetails.getDescription()
-                                    </p>
+									<p>
+										$returnDetails.getDescription()
+									</p>
 								#end
 								<div class="panelContent">
 										<pre class="code">$responseExample</pre>
@@ -117,7 +117,7 @@
 								<p>$jsonResponse.getComments()</p>
 							#end
 						#end
-					#else	
+					#else
 						<p>Response has no body.</p>
 					#end
 					#if($httpMethod.getPossibleResponseStatuses() && !$httpMethod.getPossibleResponseStatuses().isEmpty())

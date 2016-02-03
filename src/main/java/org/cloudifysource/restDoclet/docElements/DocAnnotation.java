@@ -90,6 +90,11 @@ public class DocAnnotation {
 		return value;
 	}
 
+	// Modification to retrieve an attribute
+	public Object getAttribute(String name) {
+		return attributes.getOrDefault(name, null);
+	}
+
 	/**
 	 * 
 	 * @param attrName .

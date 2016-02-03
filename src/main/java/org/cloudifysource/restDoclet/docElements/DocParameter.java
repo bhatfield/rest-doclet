@@ -17,6 +17,7 @@ package org.cloudifysource.restDoclet.docElements;
 
 import java.util.List;
 
+import org.cloudifysource.restDoclet.constants.RestDocConstants;
 import org.cloudifysource.restDoclet.constants.RestDocConstants.DocAnnotationTypes;
 
 import com.sun.javadoc.Type;
@@ -136,6 +137,13 @@ public class DocParameter {
 				requestParamAnnotation = (DocRequestParamAnnotation) docAnnotation;
 			} else if (docAnnotationType == DocAnnotationTypes.REQUEST_BODY) {
 				requestBodyAnnotation = docAnnotation;
+				// Hacky modification: add request param via request body annotation
+				if (docAnnotation.getAttribute(RestDocConstants.REQUEST_PARAMS_REQUIRED) != null) {
+					DocRequestParamAnnotation annotation = new DocRequestParamAnnotation(RestDocConstants.REQUEST_PARAMS_REQUIRED);
+					annotation.addAttribute(RestDocConstants.REQUEST_PARAMS_REQUIRED,
+							docAnnotation.getAttribute(RestDocConstants.REQUEST_PARAMS_REQUIRED));
+					requestParamAnnotation = annotation;
+				}
 			} else if (docAnnotationType == DocAnnotationTypes.VALID) {
 				// Do nothing
 			} else if (docAnnotationType != DocAnnotationTypes.PATH_VARIABLE) {

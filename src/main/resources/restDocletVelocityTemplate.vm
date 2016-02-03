@@ -43,33 +43,27 @@
 						<h3>Parameters</h3>
 						<table>
 							<tr>
-								<th>Type</th>
 								<th>Name</th>
-								<th>Description</th>
+								<th>Type</th>
 								<th>Mandatory</th>
 								<th>Parameter type</th>
-								<th>Default value</th>
+								<th>Description</th>
 							</tr>
 							#foreach($docParameter in $params)
 								<tr>
-									<td>$docParameter.getType().simpleTypeName()</td>
 									#if($docParameter.getRequestParamAnnotation() && $docParameter.getRequestParamAnnotation().getValue() && !$docParameter.getRequestParamAnnotation().getValue().isEmpty())
 										<td>$docParameter.getRequestParamAnnotation().getValue()</td>
 									#else
 										<td>$docParameter.getName()</td>
 									#end
-									#if($docParameter.getDescription())
-										<td>$docParameter.getDescription().replace(".", "")</td>
-									#else
-										<td></td> 
-									#end
+									<td>$docParameter.getType().simpleTypeName()</td>
 									<td>$docParameter.isRequired()</td>
 									<td>$docParameter.getLocation()</td>
-									#if($docParameter.getDefaultValue())
-										<td>$docParameter.getDefaultValue()</td>
-									#else
-										<td></td>
-									#end
+                                    #if($docParameter.getDescription())
+                                        <td>$docParameter.getDescription().replace(".", "")</td>
+                                    #else
+                                        <td></td>
+                                    #end
 								</tr>
 							#end
 						</table>
@@ -106,7 +100,13 @@
 							<div class="panel">
 								<div class="panelHeader">
 									Response to a $httpMethodName on $methodUri
-								</div>	
+								</div>
+								#set($returnDetails = $httpMethod.getReturnDetails())
+								#if($returnDetails && $returnDetails.getDescription())
+								    <p>
+                                        $returnDetails.getDescription()
+                                    </p>
+								#end
 								<div class="panelContent">
 										<pre class="code">$responseExample</pre>
 								</div>
@@ -114,7 +114,7 @@
 						#set($jsonResponse = $httpMethod.getJsonResponseExample())
 						#if($jsonResponse && !$jsonResponse.isEmpty())
 							#if($jsonResponse.getComments() && !$jsonResponse.getComments().isEmpty())
-								<p>$response.getComments()</p>
+								<p>$jsonResponse.getComments()</p>
 							#end
 						#end
 					#else	

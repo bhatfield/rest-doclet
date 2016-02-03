@@ -378,16 +378,20 @@ public final class RestDocConstants {
 				return DocPossibleResponseStatusAnnotation.class;
 			case POSSIBLE_RESPONSE_STATUSES:
 				return DocPossibleResponseStatusesAnnotation.class;
+			case VALID:
+				return Object.class;
 			case REQUEST_BODY:
 			case RESPONSE_BODY:
-			case VALID:
 			case PATH_VARIABLE:
 			case CONTROLLER:
 			case INTERNAL_METHOD_ANNOTATION:
+			default:
 				return DocAnnotation.class;
+			/*
 			default:
 				throw new IllegalArgumentException(
 						"Unsupported DocAnnotations: " + name);
+						*/
 			}
 		}
 

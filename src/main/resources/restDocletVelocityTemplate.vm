@@ -36,11 +36,11 @@
 						<p>$httpMethod.getDescription()</p>
 					#end
 					#########################################################
-					## Parameters
+					## Request Parameters
 					#########################################################
 					#set($params = $httpMethod.getAnnotatedParams())
 					#if($params && !$params.isEmpty())
-						<h3>Parameters</h3>
+						<h3>Request Parameters</h3>
 						<table>
 							<tr>
 								<th>Name</th>
@@ -68,6 +68,47 @@
 							#end
 						</table>
 					#end
+
+
+                    #########################################################
+                    ## Response Parameters
+                    #########################################################
+                    #set($returnDetails = $httpMethod.getReturnDetails())
+                    #if($returnDetails)
+                            <h3>Response Parameters</h3>
+                            #if($returnDetails.getDescription())
+                                <p>
+                                    $returnDetails.getDescription()
+                                </p>
+                            #end
+                        #set($params = $returnDetails.getParamsList())
+                        #if($params && !$params.isEmpty())
+
+                            <table>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Type</th>
+                                    <th>Description</th>
+                                </tr>
+                                #foreach($docParameter in $params)
+                                    <tr>
+                                        #if($docParameter.getRequestParamAnnotation() && $docParameter.getRequestParamAnnotation().getValue() && !$docParameter.getRequestParamAnnotation().getValue().isEmpty())
+                                            <td>$docParameter.getRequestParamAnnotation().getValue()</td>
+                                        #else
+                                            <td>$docParameter.getName()</td>
+                                        #end
+                                        <td>$docParameter.getType().simpleTypeName()</td>
+                                        #if($docParameter.getDescription())
+                                            <td>$docParameter.getDescription().replace(".", "")</td>
+                                        #else
+                                            <td></td>
+                                        #end
+                                    </tr>
+                                #end
+                            </table>
+                        #end
+                    #end
+
 					#########################################################
 					## Request
 					#########################################################
@@ -101,12 +142,6 @@
 								<div class="panelHeader">
 									Response to a $httpMethodName on $methodUri
 								</div>
-								#set($returnDetails = $httpMethod.getReturnDetails())
-								#if($returnDetails && $returnDetails.getDescription())
-									<p>
-										$returnDetails.getDescription()
-									</p>
-								#end
 								<div class="panelContent">
 										<pre class="code">$responseExample</pre>
 								</div>
@@ -135,5 +170,19 @@
 				#end
 			#end
 		#end
+
+        #if($dataStructs.size() > 0)
+            <h1>Enumerations</h1>
+		    #foreach($struct in $dataStructs)
+                <h2>$struct.name()</h2>
+                <p>$struct.commentText()</p>
+                <ul>
+                #foreach($constant in $struct.enumConstants())
+                    <li><code>$constant.name()</code> - $constant.commentText()</li>
+                #end
+                </ul>
+            #end
+        #end
+
 	</body>
 </html>

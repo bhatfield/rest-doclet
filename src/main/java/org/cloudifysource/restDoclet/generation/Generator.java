@@ -21,6 +21,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import com.sun.javadoc.*;
+import javafx.collections.transformation.SortedList;
 import org.apache.commons.lang.StringUtils;
 import org.apache.commons.lang.ArrayUtils;
 import org.apache.velocity.Template;
@@ -75,6 +76,7 @@ public class Generator {
 	private static IDocExampleGenerator responseExampleGenerator;
 	private static String requestBodyParamFilterName;
 	private static IRequestBodyParamFilter requestBodyParamFilter;
+	private static Set<ClassDoc> includeDataStructs = new HashSet<>();
 
 
 	/**
@@ -291,7 +293,7 @@ public class Generator {
 				+ " controlles, creating HTML documentation using velocity template.");
 
 		// TRANSLATE DOC CLASSES INTO HTML DOCUMENTATION USING VELOCITY TEMPLATE
-		String generatedHtml = generateHtmlDocumentation(controllers);
+		String generatedHtml = generateHtmlDocumentation(controllers, includeDataStructs);
 
 		// WRITE GENERATED HTML TO A FILE
 		FileWriter velocityfileWriter = null;
@@ -326,7 +328,7 @@ public class Generator {
 	 * @return string that contains the documentation in HTML form.
 	 * @throws Exception .
 	 */
-	public String generateHtmlDocumentation(final List<DocController> controllers)
+	public String generateHtmlDocumentation(final List<DocController> controllers, final Set dataStructs)
 			throws Exception {
 
 		logger.log(Level.INFO, "Generate velocity using template: "
@@ -349,9 +351,17 @@ public class Generator {
 
 		VelocityContext ctx = new VelocityContext();
 
+
+		Iterator<ClassDoc> i = dataStructs.iterator();
+		List<ClassDoc> l = new LinkedList<>();
+		while (i.hasNext()) {
+			l.add(i.next());
+		}
+
 		ctx.put("controllers", controllers);
 		ctx.put("version", version);
 		ctx.put("docCssPath", docCssPath);
+		ctx.put("dataStructs", l);
 
 
 		Writer writer = new StringWriter();
@@ -403,16 +413,11 @@ public class Generator {
 			DocController controller = new DocController(controllerClassName);
 			Map<String, Type> parameterizedTypes = new HashMap<>();
 			SortedMap<String, DocMethod> generatedMethods = generateMethods(classDoc.methods(), parameterizedTypes);
-			if (generatedMethods.isEmpty()) {
-				logger.log(Level.INFO,
-						"controller class "
-								+ controller.getName()
-								+ " doesn't have methods. Checking parent class...");
-
-				// Check for parent class
-				Type superCls = classDoc.superclassType();
-				if (superCls == null) {
-					continue;
+			Type superCls = classDoc.superclassType();
+			while (superCls != null) {
+				ClassDoc supCls = documentation.classNamed(superCls.qualifiedTypeName());
+				if (supCls == null || isJavaType(superCls.qualifiedTypeName())) {
+					break;
 				}
 
 				// Check for parameterized type
@@ -437,16 +442,17 @@ public class Generator {
 				}
 
 				MethodDoc[] parentMethods = superCls.asClassDoc().methods();
-				generatedMethods = generateMethods(parentMethods, parameterizedTypes);
-				if (generatedMethods.isEmpty()) {
-					logger.log(Level.WARNING,
-							"Could not find methods in "
-									+ controller.getName()
-									+ " controller class or its parent class(es)");
-					continue;
-				}
+				generatedMethods.putAll(generateMethods(parentMethods, parameterizedTypes));
 
+				superCls = supCls.superclassType();
 			}
+
+			if (generatedMethods.isEmpty()) {
+				logger.log(Level.WARNING, "Could not find methods in controller: "
+						+ controller.getName() + " or its parent class(es).");
+				continue;
+			}
+
 			controller.setMethods(generatedMethods);
 			controller.setUri(uri);
 			controller.setDescription(classDoc.commentText());
@@ -485,17 +491,24 @@ public class Generator {
 			DocRequestMappingAnnotation requestMappingAnnotation = Utils
 					.getRequestMappingAnnotation(annotations);
 			String[] methodArray = requestMappingAnnotation.getMethod();
-			if (methodArray == null || methodArray.length <= 0) {
-				continue;
-			}
-			DocHttpMethod[] docHttpMethodArray = new DocHttpMethod[methodArray.length];
-			for (int i = 0; i < methodArray.length; i++) {
 
+			if (methodArray == null || methodArray.length <= 0) {
+				// If we have a valid Request annotation, just assume it's a GET method
+				methodArray = new String[]{"GET"};
+				//continue;
+			}
+
+			List<DocHttpMethod> docHttpMethodArray = new ArrayList<>();
+			for (int i = 0; i < methodArray.length; i++) {
+				if (methodDoc.returnType().typeName().equals("ModelAndView")) {
+					continue;
+				}
 				// Hack-ily handle parameterized-parameterized return type
 				String returnType = "";
 				if (methodDoc.returnType().asParameterizedType() != null) {
 					returnType = methodDoc.returnType().toString();
 				}
+
 
 				if (returnType.contains("<")) {
 
@@ -527,8 +540,8 @@ public class Generator {
 					}
 				}
 
-				docHttpMethodArray[i] = generateHttpMethod(methodDoc,
-						methodArray[i], annotations, parameterizedTypes);
+				docHttpMethodArray.add(generateHttpMethod(methodDoc,
+						methodArray[i], annotations, parameterizedTypes));
 			}
 			// get all URIs
 			String[] uriArray = requestMappingAnnotation.getValue();
@@ -536,19 +549,24 @@ public class Generator {
 				uriArray = new String[1];
 				uriArray[0] = "";
 			}
-			for (String uri : uriArray) {
-				DocMethod docMethod = docMethods.get(uri);
-				// If method with that uri already exist,
-				// add the current httpMethod to the existing method.
-				// There can be several httpMethods (GET, POST, DELETE) for each
-				// uri.
-				if (docMethod != null) {
-					docMethod.addHttpMethods(docHttpMethodArray);
-				} else {
-					docMethod = new DocMethod(docHttpMethodArray);
-					docMethod.setUri(uri);
+			if (docHttpMethodArray.size() > 0) {
+				for (String uri : uriArray) {
+					DocMethod docMethod = docMethods.get(uri);
+
+					// If method with that uri already exist,
+					// add the current httpMethod to the existing method.
+					// There can be several httpMethods (GET, POST, DELETE) for each
+					// uri.
+					DocHttpMethod[] dhm = new DocHttpMethod[docHttpMethodArray.size()];
+					docHttpMethodArray.toArray(dhm);
+					if (docMethod != null) {
+						docMethod.addHttpMethods(dhm);
+					} else {
+						docMethod = new DocMethod(dhm);
+						docMethod.setUri(uri);
+					}
+					docMethods.put(uri, docMethod);
 				}
-				docMethods.put(uri, docMethod);
 			}
 		}
 		return docMethods;
@@ -607,6 +625,9 @@ public class Generator {
 	// Returns the fields and any additional subfields of a object
 	private static FieldDoc[] getFields(String name) {
 		ClassDoc cls = documentation.classNamed(name);
+		if (cls == null) {
+			return new FieldDoc[0];
+		}
 		String parentCls = cls.superclass().qualifiedTypeName();
 		if (!isJavaType(parentCls)) {
 			return (FieldDoc[]) ArrayUtils.addAll(cls.fields(), getFields(parentCls));
@@ -673,11 +694,8 @@ public class Generator {
 			} else {
 				cls = documentation.classNamed(type);
 				if (cls.isEnum()) {
-					ArrayList<String> constants = new ArrayList<>();
-					for (FieldDoc constant : cls.enumConstants()) {
-						constants.add(constant.name());
-					}
-					mappy.put(name, constants.toArray());
+					includeDataStructs.add(cls);
+					mappy.put(name, cls.name());
 				} else {
 					mappy.put(name, generateBody(getFields(type), parameterizedTypes));
 				}
@@ -790,16 +808,20 @@ public class Generator {
 	}
 
 	// Generate sub-parameters for the parameters table
-	private static List<DocParameter> generateSubParameters(Type type, String prefix, List<DocAnnotation> annotations) {
+	private static List<DocParameter> generateSubParameters(Type type,
+															String prefix,
+															List<DocAnnotation> annotations,
+															Map<String, Type> parameterizedTypes) {
 		List<DocParameter> paramsList = new LinkedList<DocParameter>();
 		String typeName = type.qualifiedTypeName();
 
 		for (FieldDoc field : getFields(typeName)) {
-			String name = prefix + "." + field.name();
+			String name = (prefix == null) ? field.name() : prefix + "." + field.name();
 			Type paramType = field.type();
 			typeName = paramType.qualifiedTypeName();
 			DocParameter docParameter = new DocParameter(name, paramType);
 			Boolean required = false;
+
 
 			if (field.constantValueExpression() != null) {
 				continue;
@@ -817,6 +839,24 @@ public class Generator {
 				}
 			}
 
+			if (parameterizedTypes != null) {
+				String n = paramType.simpleTypeName();
+				Type t = parameterizedTypes.get(n);
+
+				if (t != null) {
+					paramType = t;
+					typeName = t.qualifiedTypeName();
+					docParameter = new DocParameter(name, paramType);
+					if (!isJavaType(t.qualifiedTypeName())) {
+						docParameter.setDescription(field.commentText());
+						docParameter.setAnnotations(annotations);
+						paramsList.add(docParameter);
+						paramsList.addAll(generateSubParameters(t, name, annotations, parameterizedTypes));
+						continue;
+					}
+				}
+			}
+
 			docParameter.setDescription(field.commentText());
 			docParameter.setAnnotations(annotations);
 			paramsList.add(docParameter);
@@ -827,7 +867,7 @@ public class Generator {
 					if (isJavaType(args[1].qualifiedTypeName())) {
 
 					} else {
-						paramsList.addAll(generateSubParameters(args[1], name, annotations));
+						paramsList.addAll(generateSubParameters(args[1], name, annotations, parameterizedTypes));
 					}
 				}
 			} else if (typeName.equals("java.util.List")) {
@@ -836,11 +876,11 @@ public class Generator {
 					if (isJavaType(args[0].qualifiedTypeName())) {
 						// Do nothing
 					} else {
-						paramsList.addAll(generateSubParameters(args[0], name, annotations));
+						paramsList.addAll(generateSubParameters(args[0], name, annotations, parameterizedTypes));
 					}
 				}
 			} else if (!isJavaType(typeName) && !paramType.isPrimitive()) {
-				paramsList.addAll(generateSubParameters(paramType, name, annotations));
+				paramsList.addAll(generateSubParameters(paramType, name, annotations, parameterizedTypes));
 			}
 		}
 		return paramsList;
@@ -873,7 +913,7 @@ public class Generator {
 			paramsList.add(docParameter);
 
 			if (!isJavaType(paramType.qualifiedTypeName())) {
-				paramsList.addAll(generateSubParameters(paramType, name, annotations));
+				paramsList.addAll(generateSubParameters(paramType, name, annotations, null));
 			}
 
 		}
@@ -889,6 +929,14 @@ public class Generator {
 		Tag[] returnTags = methodDoc.tags("return");
 		if (returnTags.length > 0) {
 			returnDetails.setDescription(returnTags[0].text());
+		}
+
+		if (!isJavaType(returnType.qualifiedTypeName())) {
+			returnDetails.setParamsList(
+					generateSubParameters(returnType,
+							null,
+							new LinkedList<DocAnnotation>(),
+							parameterizedTypes));
 		}
 
 		return returnDetails;

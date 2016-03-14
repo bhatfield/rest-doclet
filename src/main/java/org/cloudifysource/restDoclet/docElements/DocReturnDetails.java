@@ -16,6 +16,7 @@
 package org.cloudifysource.restDoclet.docElements;
 
 import com.sun.javadoc.Type;
+import java.util.List;
 
 /**
  * 
@@ -25,6 +26,7 @@ import com.sun.javadoc.Type;
 public class DocReturnDetails {
 	private final Type returnType;
 	private String description;
+	private List<DocParameter> paramsList;
 
 	public DocReturnDetails(final Type returnType) {
 		this.returnType = returnType;
@@ -38,6 +40,8 @@ public class DocReturnDetails {
 	public void setDescription(final String description) {
 		this.description = description;
 	}
+	public List<DocParameter> getParamsList() { return paramsList; }
+	public void setParamsList(List<DocParameter> paramsList) { this.paramsList = paramsList; }
 
 	@Override
 	public String toString() {

@@ -121,10 +121,6 @@ public class DocParameter {
 		StringBuilder currLocation = new StringBuilder();
 		for (DocAnnotation docAnnotation : annotations) {
 			String annotationName = docAnnotation.getName();
-			if (currLocation.length() > 0) {
-				currLocation.append(" or ");
-			}
-			currLocation.append(annotationName);
 			DocAnnotationTypes docAnnotationType = DocAnnotationTypes
 					.fromName(annotationName);
 			if (docAnnotationType == DocAnnotationTypes.REQUEST_PARAM) {
@@ -144,12 +140,17 @@ public class DocParameter {
 							docAnnotation.getAttribute(RestDocConstants.REQUEST_PARAMS_REQUIRED));
 					requestParamAnnotation = annotation;
 				}
-			} else if (docAnnotationType == DocAnnotationTypes.VALID) {
-				// Do nothing
+			} else if (docAnnotationType == DocAnnotationTypes.VALID || docAnnotationType == DocAnnotationTypes.VALIDATED) {
+				continue;
 			} else if (docAnnotationType != DocAnnotationTypes.PATH_VARIABLE) {
 				throw new IllegalArgumentException(
 						"Unsupported parameter annotation - " + annotationName);
 			}
+			if (currLocation.length() > 0) {
+				currLocation.append(" or ");
+			}
+			currLocation.append(annotationName);
+
 		}
 		this.location = currLocation.toString();
 	}

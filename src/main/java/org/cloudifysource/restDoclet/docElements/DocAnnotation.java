@@ -92,7 +92,7 @@ public class DocAnnotation {
 
 	// Modification to retrieve an attribute
 	public Object getAttribute(String name) {
-		return attributes.getOrDefault(name, null);
+		return attributes.get(name);
 	}
 
 	/**

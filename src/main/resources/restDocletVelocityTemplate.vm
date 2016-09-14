@@ -56,11 +56,40 @@
 									#else
 										<td>$docParameter.getName()</td>
 									#end
-									<td>$docParameter.getType().simpleTypeName()</td>
+                                    #set($type = $docParameter.getType().asParameterizedType())
+                                    #if($type)
+                                        <td>
+                                        #set($type = $docParameter.getType().simpleTypeName())
+                                        $type &lt;
+                                        #set($element = $docParameter.getType().asParameterizedType().typeArguments()[0].simpleTypeName())
+                                        #if($enumList.contains($element))
+                                            <a href="#$element">$element</a>
+                                        #else
+                                            $element
+                                        #end
+                                        #if ($type.contains("Map"))
+                                            ,
+                                            #set($element = $docParameter.getType().asParameterizedType().typeArguments()[1].simpleTypeName())
+                                            #if($enumList.contains($element))
+                                                <a href="#$element">$element</a>
+                                            #else
+                                                $element
+                                            #end
+                                        #end
+                                         &gt; </td>
+                                    #else
+                                        #if($enumList.contains($docParameter.getType().simpleTypeName()))
+                                            <td><a href="#$docParameter.getType().simpleTypeName()">$docParameter.getType().simpleTypeName()</a></td>
+                                        #elseif(!$docParameter.getType().dimension().isEmpty())
+                                            <td>List &lt; $docParameter.getType().simpleTypeName() &gt;</td>
+                                        #else
+                                            <td>$docParameter.getType().simpleTypeName() </td>
+                                        #end
+                                    #end
 									<td>$docParameter.isRequired()</td>
 									<td>$docParameter.getLocation()</td>
 									#if($docParameter.getDescription())
-										<td>$docParameter.getDescription().replace(".", "")</td>
+										<td>$docParameter.getDescription()</td>
 									#else
 										<td></td>
 									#end
@@ -97,9 +126,41 @@
                                         #else
                                             <td>$docParameter.getName()</td>
                                         #end
-                                        <td>$docParameter.getType().simpleTypeName()</td>
+                                        #set($type = $docParameter.getType().asParameterizedType())
+                                        #if($type)
+                                            <td>
+                                            #set($type = $docParameter.getType().simpleTypeName())
+                                            $type &lt;
+                                            #set($params = $docParameter.getType().asParameterizedType().typeArguments())
+                                            #if($params.size() > 0)
+                                                #set($element = $docParameter.getType().asParameterizedType().typeArguments()[0].simpleTypeName())
+                                                #if($enumList.contains($element))
+                                                    <a href="#$element">$element</a>
+                                                #else
+                                                    $element
+                                                #end
+                                                #if ($type.contains("Map"))
+                                                    ,
+                                                    #set($element = $docParameter.getType().asParameterizedType().typeArguments()[1].simpleTypeName())
+                                                    #if($enumList.contains($element))
+                                                        <a href="#$element">$element</a>
+                                                    #else
+                                                        $element
+                                                    #end
+                                                #end
+                                             #end
+                                             &gt; </td>
+                                        #else
+                                            #if($enumList.contains($docParameter.getType().simpleTypeName()))
+                                                <td><a href="#$docParameter.getType().simpleTypeName()">$docParameter.getType().simpleTypeName()</a></td>
+                                            #elseif(!$docParameter.getType().dimension().isEmpty())
+                                                <td>List &lt; $docParameter.getType().simpleTypeName() &gt;</td>
+                                            #else
+                                                <td>$docParameter.getType().simpleTypeName()</td>
+                                            #end
+                                        #end
                                         #if($docParameter.getDescription())
-                                            <td>$docParameter.getDescription().replace(".", "")</td>
+                                            <td>$docParameter.getDescription()</td>
                                         #else
                                             <td></td>
                                         #end
@@ -174,7 +235,13 @@
         #if($dataStructs.size() > 0)
             <h1>Enumerations</h1>
 		    #foreach($struct in $dataStructs)
-                <h2>$struct.name()</h2>
+		        #set($name = $struct.name())
+		        #if($name.contains("."))
+		            #set($name = $name.substring($name.lastIndexOf(".")))
+		            #set($name = $name.substring(1))
+		        #end
+		        <a name="$name"></a>
+                <h2>$name</h2>
                 <p>$struct.commentText()</p>
                 <ul>
                 #foreach($constant in $struct.enumConstants())

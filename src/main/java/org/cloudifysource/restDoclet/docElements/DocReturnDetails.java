@@ -28,6 +28,11 @@ public class DocReturnDetails {
 	private String description;
 	private List<DocParameter> paramsList;
 
+	// Modification: Added null constructor for types we don't want to document
+	public DocReturnDetails() {
+		this.returnType = null;
+	}
+
 	public DocReturnDetails(final Type returnType) {
 		this.returnType = returnType;
 	}

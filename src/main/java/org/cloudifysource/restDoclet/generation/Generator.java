@@ -21,7 +21,6 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import com.sun.javadoc.*;
-import javafx.collections.transformation.SortedList;
 import org.apache.commons.lang.StringUtils;
 import org.apache.commons.lang.ArrayUtils;
 import org.apache.velocity.Template;
@@ -76,8 +75,8 @@ public class Generator {
 	private static IDocExampleGenerator responseExampleGenerator;
 	private static String requestBodyParamFilterName;
 	private static IRequestBodyParamFilter requestBodyParamFilter;
-	private static Set<ClassDoc> includeDataStructs = new HashSet<>();
-
+	private static Set<ClassDoc> includeEnums = new HashSet<>();
+	private static List<String> paramStack = new ArrayList<>();
 
 	/**
 	 *
@@ -293,7 +292,7 @@ public class Generator {
 				+ " controlles, creating HTML documentation using velocity template.");
 
 		// TRANSLATE DOC CLASSES INTO HTML DOCUMENTATION USING VELOCITY TEMPLATE
-		String generatedHtml = generateHtmlDocumentation(controllers, includeDataStructs);
+		String generatedHtml = generateHtmlDocumentation(controllers, includeEnums);
 
 		// WRITE GENERATED HTML TO A FILE
 		FileWriter velocityfileWriter = null;
@@ -350,19 +349,21 @@ public class Generator {
 		Velocity.init(p);
 
 		VelocityContext ctx = new VelocityContext();
-
+		List<String> enumList = new ArrayList<>();
 
 		Iterator<ClassDoc> i = dataStructs.iterator();
-		List<ClassDoc> l = new LinkedList<>();
+		List<ClassDoc> l = new ArrayList<>();
 		while (i.hasNext()) {
-			l.add(i.next());
+			ClassDoc doc = i.next();
+			l.add(doc);
+			enumList.add(doc.simpleTypeName());
 		}
 
 		ctx.put("controllers", controllers);
 		ctx.put("version", version);
 		ctx.put("docCssPath", docCssPath);
 		ctx.put("dataStructs", l);
-
+		ctx.put("enumList", enumList);
 
 		Writer writer = new StringWriter();
 
@@ -397,13 +398,32 @@ public class Generator {
 
 		String controllerClassName = classDoc.typeName();
 		DocRequestMappingAnnotation requestMappingAnnotation = Utils.getRequestMappingAnnotation(annotations);
+
+		String[] uriArray = new String[]{};
+
 		if (requestMappingAnnotation == null) {
-			logger.log(Level.WARNING,
-					"controller class " + controllerClassName
-							+ " is missing request mapping annotation");
-			return null;
+			MethodDoc[] methods = classDoc.methods();
+			for (MethodDoc method : methods) {
+				AnnotationDesc[] annotes = method.annotations();
+				for (AnnotationDesc annote : annotes) {
+					String annoteString = annote.toString();
+					if (annoteString.contains("value") && annoteString.contains("method")) {
+						uriArray = new String[]{""};
+						break;
+					}
+				}
+			}
+			if (uriArray.length <= 0) {
+
+				logger.log(Level.WARNING,
+						"controller class " + controllerClassName
+								+ " is missing request mapping annotation");
+				return null;
+			}
+		} else {
+			uriArray = requestMappingAnnotation.getValue();
 		}
-		String[] uriArray = requestMappingAnnotation.getValue();
+
 		if (uriArray == null || uriArray.length == 0) {
 			throw new IllegalArgumentException("controller class "
 					+ controllerClassName
@@ -421,22 +441,13 @@ public class Generator {
 				}
 
 				// Check for parameterized type
-				// If parameterized, try to create a mapping between the parameterized variable name and the type
-				String clsName = superCls.toString();
-				if (clsName.contains("<")) {
-					String param = clsName.substring(clsName.indexOf("<") + 1, clsName.indexOf(">"));
-					String[] params;
+				// If parameterized, try to create a mapping between the type variable and the type
+				ParameterizedType pt = superCls.asParameterizedType();
+				if (pt != null) {
+					Type[] params = pt.typeArguments();
 					int index = 0;
-					if (param.contains(",")) {
-						params = param.split(",");
-					} else {
-						params = new String[1];
-						params[0] = param;
-					}
-
-
 					for (TypeVariable var : classDoc.superclass().typeParameters()) {
-						parameterizedTypes.put(var.toString(), documentation.classNamed(params[index].trim()));
+						parameterizedTypes.put(var.toString(), documentation.classNamed(params[index].qualifiedTypeName()));
 						index++;
 					}
 				}
@@ -454,6 +465,9 @@ public class Generator {
 			}
 
 			controller.setMethods(generatedMethods);
+			if (uri.endsWith("/*")) {
+				uri = uri.substring(0, uri.length() - 2);
+			}
 			controller.setUri(uri);
 			controller.setDescription(classDoc.commentText());
 
@@ -504,39 +518,36 @@ public class Generator {
 					continue;
 				}
 				// Hack-ily handle parameterized-parameterized return type
-				String returnType = "";
-				if (methodDoc.returnType().asParameterizedType() != null) {
-					returnType = methodDoc.returnType().toString();
+				ParameterizedType pt = methodDoc.returnType().asParameterizedType();
+				LinkedList<ParameterizedType> ptList = new LinkedList<>();
+				Set<Type> params = new HashSet<>();
+				if (pt != null) {
+					ptList.add(pt);
 				}
-
-
-				if (returnType.contains("<")) {
-
-					String pType = returnType.substring(0, returnType.indexOf("<"));
-					ClassDoc classDoc = documentation.classNamed(pType);
-					if (!isJavaType(pType) && classDoc != null) {
-						String param = returnType.substring(returnType.indexOf("<") + 1, returnType.indexOf(">"));
-						String[] paramTypes;
-						if (param.contains(",")) {
-							paramTypes = param.split(",");
+				// Find all type variables
+				while (!ptList.isEmpty()) {
+					pt = ptList.pop();
+					Type[] args = pt.typeArguments();
+					for (Type arg : args) {
+						pt = arg.asParameterizedType();
+						if (pt == null) {
+							if (isJavaType(arg.qualifiedTypeName()) || documentation.classNamed(arg.qualifiedTypeName()) != null) {
+								continue;
+							}
+							params.add(arg);
 						} else {
-							paramTypes = new String[1];
-							paramTypes[0] = param;
+							ptList.add(pt);
 						}
-
-						returnType = classDoc.toString();
-						param = returnType.substring(returnType.indexOf("<") + 1, returnType.indexOf(">"));
-						String[] paramNames;
-						if (param.contains(",")) {
-							paramNames = param.split(",");
-						} else {
-							paramNames = new String[1];
-							paramNames[0] = param;
-						}
-
-						for (int index = 0; index < paramNames.length; index++) {
-							parameterizedTypes.put(paramNames[index].trim(), parameterizedTypes.get(paramTypes[index].trim()));
-						}
+					}
+				}
+				// Map type variable to type
+				for (Type param : params) {
+					String key = param.simpleTypeName();
+					Type value = parameterizedTypes.get(key);
+					parameterizedTypes.put(key, value);
+					if (value == null) {
+						value = documentation.classNamed(param.qualifiedTypeName());
+						parameterizedTypes.put(key, value);
 					}
 				}
 
@@ -549,8 +560,11 @@ public class Generator {
 				uriArray = new String[1];
 				uriArray[0] = "";
 			}
-			if (docHttpMethodArray.size() > 0) {
+			if (!docHttpMethodArray.isEmpty()) {
 				for (String uri : uriArray) {
+					if (uri.endsWith("/*")) {
+						uri = uri.substring(0, uri.length() - 2);
+					}
 					DocMethod docMethod = docMethods.get(uri);
 
 					// If method with that uri already exist,
@@ -573,8 +587,12 @@ public class Generator {
 	}
 
 	private static DocHttpMethod generateHttpMethod(final MethodDoc methodDoc,
-													final String httpMethodName, final List<DocAnnotation> annotations, Map<String, Type> parameterizedTypes)
+													final String httpMethodName,
+													final List<DocAnnotation> annotations,
+													Map<String,
+													Type> parameterizedTypes)
 			throws Exception {
+
 		DocHttpMethod httpMethod = new DocHttpMethod(methodDoc.name(),
 				httpMethodName);
 		httpMethod.setDescription(methodDoc.commentText());
@@ -613,20 +631,44 @@ public class Generator {
 		} else {
 			responseExample = generateResponseExample(httpMethod, parameterizedTypes);
 		}
+		try {
+			if (httpMethod.getReturnDetails().getReturnType().simpleTypeName().equals("ResponseEntity")) {
+				responseExample = RESPONSE_HAS_NO_BODY_MSG;
+			}
+		} catch (NullPointerException e) {
+			;
+		}
 		httpMethod.setResponseExample(responseExample);
 
 	}
 
 	// Test for Java type
+	private static String[] blackList = {"LocalDate", "Jwt"};
+
 	private static boolean isJavaType(String typeName) {
-		return typeName.startsWith("java");
+		String simpleTypeName = typeName.substring(typeName.lastIndexOf(".") + 1);
+		return typeName.startsWith("java") || Arrays.asList(blackList).indexOf(simpleTypeName) >= 0;
+	}
+	private static boolean isJavaType(Type type) {
+		return isJavaType(type.qualifiedTypeName());
+	}
+
+	private static String [] javaCollections = {"java.util.Map", "java.util.List", "java.util.Set"};
+	private static boolean isJavaGenericClass (String typeName) {
+		return Arrays.asList(javaCollections).indexOf(typeName) >= 0;
+	}
+	private static boolean isJavaGenericClass (Type type) {
+		return isJavaGenericClass(type.qualifiedTypeName());
 	}
 
 	// Returns the fields and any additional subfields of a object
 	private static FieldDoc[] getFields(String name) {
 		ClassDoc cls = documentation.classNamed(name);
-		if (cls == null) {
+		if (cls == null || cls.isEnum()) {
 			return new FieldDoc[0];
+		}
+		if (cls.superclass() == null) {
+			return cls.fields();
 		}
 		String parentCls = cls.superclass().qualifiedTypeName();
 		if (!isJavaType(parentCls)) {
@@ -636,69 +678,89 @@ public class Generator {
 		}
 	}
 
-	// Generate detailed JSON Body response
-	// Handles Maps, List, Class Objects and Primitives
-	private static Map generateBody(FieldDoc[] fields, Map<String, Type> parameterizedTypes) {
-		Map<String, Object> mappy = new HashMap<>();
-		ClassDoc cls;
-		for (FieldDoc field : fields) {
-			String name = field.name();
-			String type = field.type().qualifiedTypeName();
-			cls = documentation.classNamed(type);
+	// Returns the type of the type variable
+	private static Type findParameterizedType (Type type, Map<String, Type> parameterizedTypes) {
+		String typeName = type.qualifiedTypeName();
+		Type value = type;
+		if (parameterizedTypes == null) {
+			return type;
+		}
+		Type t = parameterizedTypes.get(typeName);
+		while (t != null) {
+			ClassDoc doc = documentation.classNamed(t.qualifiedTypeName());
+			if (doc != null) {
+				value = t;
+			}
+			t = parameterizedTypes.get(t);
+		}
+		return value;
+	}
 
-			// Check for parameterized types
-			if (cls == null) {
-				Type temp = parameterizedTypes.get(type);
-				if (temp == null) {
-					type = "java.lang.Object";
-				} else {
-					type = temp.qualifiedTypeName();
-				}
+
+	// Generates the JSON body for requests and responses
+	private static Map generateJSONBody(Type type, Map<String, Type> parameterizedTypes) {
+		Map<String, Object> mappy = new HashMap<>();
+
+		for (FieldDoc field : getFields(type.qualifiedTypeName())) {
+			String key = field.name();
+			Type value = findParameterizedType(field.type(), parameterizedTypes);
+			String typeName = value.qualifiedTypeName();
+			ClassDoc doc = documentation.classNamed(typeName);
+
+			// Check for circular references
+			if (paramStack.contains(typeName) && !isJavaType(typeName)) {
+				mappy.put(key, value.simpleTypeName());
+				continue;
 			}
 
 			if (field.constantValueExpression() != null) {
 				continue;
-			} else if (type.equals("java.util.Map")) {
-				Type[] args = field.type().asParameterizedType().typeArguments();
+			}
+
+			if (typeName.equals("java.util.Map")) {
+				// Handle Maps
+				Type[] args = value.asParameterizedType().typeArguments();
+				Map<String, Object> mapType = new HashMap<>();
 				if (args.length == 2) {
-					String key = args[0].typeName();
-					Map<String, Object> obj = new HashMap<>();
-					type = args[1].qualifiedTypeName();
-					if (isJavaType(type)) {
-						obj.put(key, args[1].typeName());
+					value = findParameterizedType(args[1], parameterizedTypes);
+					if (isJavaType(value)) {
+						mapType.put(args[0].simpleTypeName(), value.simpleTypeName());
+						mappy.put(key, mapType);
 					} else {
-						obj.put(key, generateBody(getFields(type), parameterizedTypes));
+						mapType.put(args[0].simpleTypeName(), generateJSONBody(value, parameterizedTypes));
+						mappy.put(key, mapType);
 					}
-					mappy.put(name, obj);
 				} else {
-					mappy.put(name, "Map");
+					mappy.put(key, "Object");
 				}
-			} else if (type.equals("java.util.List")) {
-				Type[] args = field.type().asParameterizedType().typeArguments();
+			} else if (typeName.equals("java.util.List") || typeName.equals("java.util.Set")) {
+				// Handle Collections
+				Type[] args = value.asParameterizedType().typeArguments();
 				if (args.length == 1) {
-					type = args[0].qualifiedTypeName();
-					if (isJavaType(type)) {
-						mappy.put(name, new String[]{args[0].typeName()});
+					value = findParameterizedType(args[0], parameterizedTypes);
+					if (isJavaType(value)) {
+						mappy.put(key, new String[]{value.simpleTypeName()});
 					} else {
-						Map[] obj = new Map[1];
-						obj[0] = generateBody(getFields(type), parameterizedTypes);
-						mappy.put(name, obj);
+						Map temp = generateJSONBody(value, parameterizedTypes);
+						Map[] array = new Map[]{temp};
+						mappy.put(key, array);
 					}
 				} else {
-					mappy.put(name, "List");
+					mappy.put(key, "List");
 				}
-			} else if (field.type().isPrimitive()) {
-				mappy.put(name, field.type().typeName());
-			} else if (isJavaType(type)) {
-				mappy.put(name, type.substring(type.lastIndexOf(".") + 1));
+			} else if (isJavaType(typeName) || value.isPrimitive() || (doc != null && doc.isEnum())) {
+				// Other Java types, primitive and enumerations
+				mappy.put(key, value.simpleTypeName());
 			} else {
-				cls = documentation.classNamed(type);
-				if (cls.isEnum()) {
-					includeDataStructs.add(cls);
-					mappy.put(name, cls.name());
+				// Recurse by fields for non-Java types
+				paramStack.add(typeName);
+				Map mapType = generateJSONBody(value, parameterizedTypes);
+				if (mapType.size() <=0) {
+					mappy.put(key, "Object");
 				} else {
-					mappy.put(name, generateBody(getFields(type), parameterizedTypes));
+					mappy.put(key, mapType);
 				}
+				paramStack.remove(paramStack.size() - 1);
 			}
 		}
 		return mappy;
@@ -708,41 +770,42 @@ public class Generator {
 	// Handles Primitives, Maps, Lists
 	private static String generateExample(Type type, Map<String, Type> parameterizedTypes) throws Exception {
 		String typeName = type.qualifiedTypeName();
-		ClassDoc cls = documentation.classNamed(typeName);
-		if (typeName.equals("java.util.Map")) {
-			Type[] args = type.asParameterizedType().typeArguments();
-			Map<String, Object> obj = new HashMap<>();
-			if (args.length == 2) {
-				String key = args[0].typeName();
-				typeName = args[1].qualifiedTypeName();
-				if (isJavaType(typeName)) {
-					obj.put(key, args[1].typeName());
+		if (typeName.contains("java.util.List") || typeName.contains("java.util.Set") || type.dimension().length() > 0) {
+			List<Map> list = new ArrayList<>();
+			if (type.dimension().length() <= 0) {
+				Type[] params = type.asParameterizedType().typeArguments();
+				if (params.length == 1) {
+					type = params[0];
 				} else {
-					obj.put(key, generateBody(getFields(typeName), parameterizedTypes));
+					return new ObjectMapper().writeValueAsString("List");
 				}
 			}
-			return new ObjectMapper().writeValueAsString(obj);
-
-		} else if (typeName.equals("java.util.List")) {
-			Type[] args = type.asParameterizedType().typeArguments();
-			Object[] returnArray = new Object[1];
-			if (args.length == 1) {
-				typeName = args[0].qualifiedTypeName();
-				if (isJavaType(typeName)) {
-					returnArray[0] = args[0].typeName();
+			paramStack.add(typeName);
+			list.add(generateJSONBody(type, parameterizedTypes));
+			paramStack.clear();
+			return new ObjectMapper().writeValueAsString(list);
+		} else if (typeName.contains("java.util.Map")) {
+			Type[] params = type.asParameterizedType().typeArguments();
+			if (params.length == 2) {
+				Map<String, Object> mappy = new HashMap<>();
+				if (isJavaType(params[1])) {
+					mappy.put(params[0].simpleTypeName(), params[1].simpleTypeName());
 				} else {
-					returnArray[0] = generateBody(getFields(typeName), parameterizedTypes);
+					paramStack.add(typeName);
+					mappy.put(params[0].simpleTypeName(), generateJSONBody(params[1], parameterizedTypes));
+					paramStack.clear();
 				}
+				return new ObjectMapper().writeValueAsString(mappy);
+			} else {
+				return new ObjectMapper().writeValueAsString("Object");
 			}
-			return new ObjectMapper().writeValueAsString(returnArray);
 		} else if (isJavaType(typeName)) {
-			return new ObjectMapper().writeValueAsString(type.typeName());
+			return new ObjectMapper().writeValueAsString(type.simpleTypeName());
 		} else {
-			FieldDoc[] fields = getFields(cls.qualifiedTypeName());
-			if (fields.length <= 0) {
-				return null;
-			}
-			return new ObjectMapper().writeValueAsString(generateBody(fields, parameterizedTypes));
+			paramStack.add(typeName);
+			Map mappy = generateJSONBody(type, parameterizedTypes);
+			paramStack.clear();
+			return new ObjectMapper().writeValueAsString(mappy);
 		}
 	}
 
@@ -779,6 +842,7 @@ public class Generator {
 	private static String generateResponseExample(final DocHttpMethod httpMethod, Map<String, Type> parameterizedTypes) {
 		Type returnType = httpMethod.getReturnDetails().getReturnType();
 		String typeName = returnType.qualifiedTypeName();
+
 		if (typeName.equals(void.class.getName())) {
 			String response = httpMethod.getReturnDetails().getDescription();
 			// Workaround for void returns that return file content
@@ -807,82 +871,101 @@ public class Generator {
 		return generateExample;
 	}
 
+
+
+
 	// Generate sub-parameters for the parameters table
-	private static List<DocParameter> generateSubParameters(Type type,
-															String prefix,
-															List<DocAnnotation> annotations,
-															Map<String, Type> parameterizedTypes) {
-		List<DocParameter> paramsList = new LinkedList<DocParameter>();
+	private static List<DocParameter> generateSubParameters (Type type,
+															   String name,
+															   List<DocAnnotation> annotations,
+															   Map<String, Type> parameterizedTypes,
+															   FieldDoc fieldInfo) {
+		type = findParameterizedType(type, parameterizedTypes);
 		String typeName = type.qualifiedTypeName();
+		DocParameter docParameter = new DocParameter(name, type);
+		Boolean required = false;
+		ClassDoc doc = documentation.classNamed(typeName);
+		List<DocParameter> paramsList = new LinkedList<DocParameter>();
 
-		for (FieldDoc field : getFields(typeName)) {
-			String name = (prefix == null) ? field.name() : prefix + "." + field.name();
-			Type paramType = field.type();
-			typeName = paramType.qualifiedTypeName();
-			DocParameter docParameter = new DocParameter(name, paramType);
-			Boolean required = false;
-
-
-			if (field.constantValueExpression() != null) {
-				continue;
+		// Set annotations from FieldDoc or ClassDoc
+		ProgramElementDoc ped = null;
+		if (doc != null) {
+			ped = doc;
+			if (doc.isEnum()) {
+				includeEnums.add(doc);
 			}
+		}
+		if (fieldInfo != null) {
+			ped = fieldInfo;
+		}
 
-			for (AnnotationDesc annotation : field.annotations()) {
+		if (ped != null) {
+			for (AnnotationDesc annotation : ped.annotations()) {
 				if (annotation.annotationType().name().equals("NotNull")) {
 					required = true;
 				}
 			}
+			docParameter.setDescription(ped.commentText());
+		}
 
-			for (DocAnnotation annotation : annotations) {
-				if (annotation.getName().equals(RestDocConstants.REQUEST_BODY_ANNOTATION)) {
-					annotation.addAttribute(RestDocConstants.REQUEST_PARAMS_REQUIRED, required);
-				}
-			}
-
-			if (parameterizedTypes != null) {
-				String n = paramType.simpleTypeName();
-				Type t = parameterizedTypes.get(n);
-
-				if (t != null) {
-					paramType = t;
-					typeName = t.qualifiedTypeName();
-					docParameter = new DocParameter(name, paramType);
-					if (!isJavaType(t.qualifiedTypeName())) {
-						docParameter.setDescription(field.commentText());
-						docParameter.setAnnotations(annotations);
-						paramsList.add(docParameter);
-						paramsList.addAll(generateSubParameters(t, name, annotations, parameterizedTypes));
-						continue;
-					}
-				}
-			}
-
-			docParameter.setDescription(field.commentText());
-			docParameter.setAnnotations(annotations);
-			paramsList.add(docParameter);
-
-			if (typeName.equals("java.util.Map")) {
-				Type[] args = field.type().asParameterizedType().typeArguments();
-				if (args.length == 2) {
-					if (isJavaType(args[1].qualifiedTypeName())) {
-
-					} else {
-						paramsList.addAll(generateSubParameters(args[1], name, annotations, parameterizedTypes));
-					}
-				}
-			} else if (typeName.equals("java.util.List")) {
-				Type[] args = field.type().asParameterizedType().typeArguments();
-				if (args.length == 1) {
-					if (isJavaType(args[0].qualifiedTypeName())) {
-						// Do nothing
-					} else {
-						paramsList.addAll(generateSubParameters(args[0], name, annotations, parameterizedTypes));
-					}
-				}
-			} else if (!isJavaType(typeName) && !paramType.isPrimitive()) {
-				paramsList.addAll(generateSubParameters(paramType, name, annotations, parameterizedTypes));
+		for (DocAnnotation annotation : annotations) {
+			if (annotation.getName().equals(RestDocConstants.REQUEST_BODY_ANNOTATION)) {
+				annotation.addAttribute(RestDocConstants.REQUEST_PARAMS_REQUIRED, required);
 			}
 		}
+
+		docParameter.setAnnotations(annotations);
+		paramsList.add(docParameter);
+
+		// Check for circular references
+		if (paramStack.contains(typeName) && !isJavaType(typeName)) {
+			return paramsList;
+		} else {
+			paramStack.add(typeName);
+		}
+
+		// If Map, Set or List, recurse by element/value
+		Type element = null;
+		if (typeName.equals("java.util.Map")) {
+			Type[] args = type.asParameterizedType().typeArguments();
+			if (args.length == 2) {
+				element = args[1];
+				if (documentation.classNamed(element.qualifiedTypeName()) == null) {
+					element = parameterizedTypes.get(element.simpleTypeName());
+				}
+			}
+		} else if (typeName.equals("java.util.List") || typeName.equals("java.util.Set")) {
+			Type[] args = type.asParameterizedType().typeArguments();
+			if (args.length == 1) {
+				element = args[0];
+				if (documentation.classNamed(element.qualifiedTypeName()) == null) {
+					element = parameterizedTypes.get(element.simpleTypeName());
+				}
+			}
+		}
+
+		// Recurse by element
+		if (element != null && (!isJavaType(element) || isJavaGenericClass(element))) {
+			List<DocParameter> list = generateSubParameters(element, name, annotations, parameterizedTypes, null);
+			list.remove(0);
+			paramsList.addAll(list);
+		} else if (!isJavaType(typeName) ) {
+			// Recurse by fields for non-Java types
+			for (FieldDoc field : getFields(typeName)) {
+				if (field.constantValueExpression() != null) {
+					continue;
+				}
+				paramStack.add(typeName);
+				String fieldName = field.name();
+				if (name.length() > 0) {
+					fieldName = name + "." + fieldName;
+				}
+				paramsList.addAll(generateSubParameters(field.type(), fieldName, annotations, parameterizedTypes, field));
+				paramStack.remove(paramStack.size() - 1);
+			}
+		}
+		paramStack.remove(paramStack.size() - 1);
+
 		return paramsList;
 	}
 
@@ -891,10 +974,13 @@ public class Generator {
 
 		for (Parameter parameter : methodDoc.parameters()) {
 			String name = parameter.name();
-			Type paramType = parameter.type();
-			if (parameterizedTypes.size() > 0 && parameterizedTypes.get(paramType.simpleTypeName()) != null) {
-				paramType = parameterizedTypes.get(paramType.simpleTypeName());
+			Type paramType = findParameterizedType(parameter.type(), parameterizedTypes);
+			String paramStr = paramType.qualifiedTypeName();
+
+			if (paramStr.contains("HttpServletResponse")) {
+				continue;
 			}
+
 			DocParameter docParameter = new DocParameter(name, paramType);
 			List<DocAnnotation> annotations = generateAnnotations(parameter.annotations());
 			for (DocAnnotation annotation : annotations) {
@@ -912,32 +998,88 @@ public class Generator {
 			docParameter.setDescription(description);
 			paramsList.add(docParameter);
 
-			if (!isJavaType(paramType.qualifiedTypeName())) {
-				paramsList.addAll(generateSubParameters(paramType, name, annotations, null));
+			if (!isJavaType(paramStr) || isJavaGenericClass(paramStr)) {
+				List<DocParameter> list = generateSubParameters(paramType,
+						name,
+						annotations,
+						parameterizedTypes,
+						null);
+				list.remove(0);
+				paramsList.addAll(list);
 			}
-
+			paramStack.clear();
 		}
 		return paramsList;
 	}
 
 	private static DocReturnDetails generateReturnDetails(final MethodDoc methodDoc, Map<String, Type> parameterizedTypes) {
 		Type returnType = methodDoc.returnType();
-		if (parameterizedTypes.size() > 0 && parameterizedTypes.get(methodDoc.returnType().simpleTypeName()) != null) {
-			returnType = parameterizedTypes.get(methodDoc.returnType().simpleTypeName());
+		String name = returnType.qualifiedTypeName();
+
+		ParameterizedType pt = returnType.asParameterizedType();
+
+		if (name.contains("HttpStatus")) {
+			return new DocReturnDetails(returnType);
 		}
+		if (pt != null) {
+			Type[] params = pt.typeArguments();
+			if (name.contains("ResponseEntity")) {
+				if (params.length == 1) {
+					returnType = documentation.classNamed(params[0].qualifiedTypeName());
+				} else {
+					return new DocReturnDetails(returnType);
+				}
+			}
+			ClassDoc doc = documentation.classNamed(name);
+			if (doc != null) {
+
+				TypeVariable[] vars = doc.typeParameters();
+				int index = 0;
+
+				for (TypeVariable var : vars) {
+					Type t = params[index];
+					String key = var.simpleTypeName();
+					pt = doc.asParameterizedType();
+					if (documentation.classNamed(t.qualifiedTypeName()) != null) {
+						index++;
+						continue;
+					}
+					while (pt != null) {
+						Type[] args = pt.typeArguments();
+						name = args[0].simpleTypeName();
+						doc = documentation.classNamed(args[0].qualifiedTypeName());
+						if (doc != null) {
+							pt = doc.asParameterizedType();
+						} else {
+							pt = null;
+						}
+					}
+					parameterizedTypes.put(key, params[index]);
+					if (documentation.classNamed(t.qualifiedTypeName()) != null) {
+						parameterizedTypes.put(key, t);
+					} else {
+						parameterizedTypes.put(key, parameterizedTypes.get(t.simpleTypeName()));
+					}
+					index++;
+				}
+			}
+		}
+		returnType = findParameterizedType(returnType, parameterizedTypes);
 		DocReturnDetails returnDetails = new DocReturnDetails(returnType);
 		Tag[] returnTags = methodDoc.tags("return");
 		if (returnTags.length > 0) {
 			returnDetails.setDescription(returnTags[0].text());
 		}
-
-		if (!isJavaType(returnType.qualifiedTypeName())) {
-			returnDetails.setParamsList(
-					generateSubParameters(returnType,
-							null,
-							new LinkedList<DocAnnotation>(),
-							parameterizedTypes));
+		if (!isJavaType(returnType) || isJavaGenericClass(returnType)) {
+			List<DocParameter> paramsList = generateSubParameters(returnType,
+					"",
+					new LinkedList<DocAnnotation>(),
+					parameterizedTypes,
+					null);
+			paramsList.remove(0);
+			returnDetails.setParamsList(paramsList);
 		}
+		paramStack.clear();
 
 		return returnDetails;
 	}

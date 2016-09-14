@@ -717,7 +717,7 @@ public class Generator {
 				value = findParameterizedType(args[1], parameterizedTypes);
 				paramStack.add(value.qualifiedTypeName());
 				if (isJavaGenericClass(value)) {
-					mappy = handleGenericClass(key, value, parameterizedTypes);
+					mappy.put(key, handleGenericClass(args[0].simpleTypeName(), value, parameterizedTypes));
 				} else if (isJavaType(value) || value.isPrimitive() || isEnum(value)) {
 					mapType.put(args[0].simpleTypeName(), value.simpleTypeName());
 					mappy.put(key, mapType);

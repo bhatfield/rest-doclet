@@ -661,6 +661,15 @@ public class Generator {
 		return isJavaGenericClass(type.qualifiedTypeName());
 	}
 
+	private static boolean isEnum (Type type) {
+		ClassDoc doc = documentation.classNamed(type.qualifiedTypeName());
+		if (doc == null) {
+			return false;
+		} else {
+			return doc.isEnum();
+		}
+	}
+
 	// Returns the fields and any additional subfields of a object
 	private static FieldDoc[] getFields(String name) {
 		ClassDoc cls = documentation.classNamed(name);
@@ -697,6 +706,53 @@ public class Generator {
 	}
 
 
+	private static Map<String, Object> handleGenericClass (String key, Type value, Map<String, Type> parameterizedTypes) {
+		String typeName = value.qualifiedTypeName();
+		Map<String, Object> mappy = new HashMap<>();
+		if (typeName.equals("java.util.Map")) {
+			// Handle Maps
+			Type[] args = value.asParameterizedType().typeArguments();
+			Map<String, Object> mapType = new HashMap<>();
+			if (args.length == 2) {
+				value = findParameterizedType(args[1], parameterizedTypes);
+				paramStack.add(value.qualifiedTypeName());
+				if (isJavaGenericClass(value)) {
+					mappy = handleGenericClass(key, value, parameterizedTypes);
+				} else if (isJavaType(value) || value.isPrimitive() || isEnum(value)) {
+					mapType.put(args[0].simpleTypeName(), value.simpleTypeName());
+					mappy.put(key, mapType);
+				} else {
+					mapType.put(args[0].simpleTypeName(), generateJSONBody(value, parameterizedTypes));
+					mappy.put(key, mapType);
+				}
+			} else {
+				mappy.put(key, "Object");
+			}
+		} else if (typeName.equals("java.util.List") || typeName.equals("java.util.Set")) {
+			// Handle Collections
+			Type[] args = value.asParameterizedType().typeArguments();
+			if (args.length == 1) {
+				value = findParameterizedType(args[0], parameterizedTypes);
+
+				paramStack.add(value.qualifiedTypeName());
+
+				if (isJavaGenericClass(value)) {
+					mappy = handleGenericClass(key, value, parameterizedTypes);
+				} else if (isJavaType(value) || value.isPrimitive() || isEnum(value)) {
+					mappy.put(key, new String[]{value.simpleTypeName()});
+				} else {
+					Map temp = generateJSONBody(value, parameterizedTypes);
+					Map[] array = new Map[]{temp};
+					mappy.put(key, array);
+				}
+			} else {
+				mappy.put(key, "List");
+			}
+		}
+		paramStack.remove(paramStack.size() - 1);
+		return mappy;
+	}
+
 	// Generates the JSON body for requests and responses
 	private static Map generateJSONBody(Type type, Map<String, Type> parameterizedTypes) {
 		Map<String, Object> mappy = new HashMap<>();
@@ -717,38 +773,9 @@ public class Generator {
 				continue;
 			}
 
-			if (typeName.equals("java.util.Map")) {
-				// Handle Maps
-				Type[] args = value.asParameterizedType().typeArguments();
-				Map<String, Object> mapType = new HashMap<>();
-				if (args.length == 2) {
-					value = findParameterizedType(args[1], parameterizedTypes);
-					if (isJavaType(value)) {
-						mapType.put(args[0].simpleTypeName(), value.simpleTypeName());
-						mappy.put(key, mapType);
-					} else {
-						mapType.put(args[0].simpleTypeName(), generateJSONBody(value, parameterizedTypes));
-						mappy.put(key, mapType);
-					}
-				} else {
-					mappy.put(key, "Object");
-				}
-			} else if (typeName.equals("java.util.List") || typeName.equals("java.util.Set")) {
-				// Handle Collections
-				Type[] args = value.asParameterizedType().typeArguments();
-				if (args.length == 1) {
-					value = findParameterizedType(args[0], parameterizedTypes);
-					if (isJavaType(value)) {
-						mappy.put(key, new String[]{value.simpleTypeName()});
-					} else {
-						Map temp = generateJSONBody(value, parameterizedTypes);
-						Map[] array = new Map[]{temp};
-						mappy.put(key, array);
-					}
-				} else {
-					mappy.put(key, "List");
-				}
-			} else if (isJavaType(typeName) || value.isPrimitive() || (doc != null && doc.isEnum())) {
+			if (isJavaGenericClass(value)) {
+				mappy.putAll(handleGenericClass(key, value, parameterizedTypes));
+			} else if (isJavaType(typeName) || value.isPrimitive() || isEnum(value)) {
 				// Other Java types, primitive and enumerations
 				mappy.put(key, value.simpleTypeName());
 			} else {
@@ -770,36 +797,20 @@ public class Generator {
 	// Handles Primitives, Maps, Lists
 	private static String generateExample(Type type, Map<String, Type> parameterizedTypes) throws Exception {
 		String typeName = type.qualifiedTypeName();
-		if (typeName.contains("java.util.List") || typeName.contains("java.util.Set") || type.dimension().length() > 0) {
-			List<Map> list = new ArrayList<>();
-			if (type.dimension().length() <= 0) {
-				Type[] params = type.asParameterizedType().typeArguments();
-				if (params.length == 1) {
-					type = params[0];
-				} else {
-					return new ObjectMapper().writeValueAsString("List");
-				}
-			}
-			paramStack.add(typeName);
-			list.add(generateJSONBody(type, parameterizedTypes));
-			paramStack.clear();
-			return new ObjectMapper().writeValueAsString(list);
-		} else if (typeName.contains("java.util.Map")) {
-			Type[] params = type.asParameterizedType().typeArguments();
-			if (params.length == 2) {
-				Map<String, Object> mappy = new HashMap<>();
-				if (isJavaType(params[1])) {
-					mappy.put(params[0].simpleTypeName(), params[1].simpleTypeName());
-				} else {
-					paramStack.add(typeName);
-					mappy.put(params[0].simpleTypeName(), generateJSONBody(params[1], parameterizedTypes));
-					paramStack.clear();
-				}
-				return new ObjectMapper().writeValueAsString(mappy);
+		if (isJavaGenericClass(type)) {
+			Map mappy = handleGenericClass("key", type, parameterizedTypes);
+			return new ObjectMapper().writeValueAsString(mappy.get("key"));
+		} else if (type.dimension().length() > 0) {
+			if (isJavaType(typeName) || type.isPrimitive()) {
+				return new ObjectMapper().writeValueAsString(new String[]{type.simpleTypeName()});
 			} else {
-				return new ObjectMapper().writeValueAsString("Object");
+				List<Map> list = new ArrayList<>();
+				paramStack.add(typeName);
+				list.add(generateJSONBody(type, parameterizedTypes));
+				paramStack.clear();
+				return new ObjectMapper().writeValueAsString(list);
 			}
-		} else if (isJavaType(typeName)) {
+		} else if (isJavaType(typeName) || type.isPrimitive()) {
 			return new ObjectMapper().writeValueAsString(type.simpleTypeName());
 		} else {
 			paramStack.add(typeName);
@@ -1040,13 +1051,9 @@ public class Generator {
 					Type t = params[index];
 					String key = var.simpleTypeName();
 					pt = doc.asParameterizedType();
-					if (documentation.classNamed(t.qualifiedTypeName()) != null) {
-						index++;
-						continue;
-					}
+
 					while (pt != null) {
 						Type[] args = pt.typeArguments();
-						name = args[0].simpleTypeName();
 						doc = documentation.classNamed(args[0].qualifiedTypeName());
 						if (doc != null) {
 							pt = doc.asParameterizedType();
@@ -1054,6 +1061,7 @@ public class Generator {
 							pt = null;
 						}
 					}
+
 					parameterizedTypes.put(key, params[index]);
 					if (documentation.classNamed(t.qualifiedTypeName()) != null) {
 						parameterizedTypes.put(key, t);
@@ -1064,6 +1072,7 @@ public class Generator {
 				}
 			}
 		}
+
 		returnType = findParameterizedType(returnType, parameterizedTypes);
 		DocReturnDetails returnDetails = new DocReturnDetails(returnType);
 		Tag[] returnTags = methodDoc.tags("return");

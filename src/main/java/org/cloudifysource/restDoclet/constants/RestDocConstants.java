@@ -191,6 +191,7 @@ public final class RestDocConstants {
 	 */
 	public static final String VALID_ANNOTATION = "Valid";
 	public static final String VALIDATED_ANNOTATION = "Validated";
+	public static final String MODEL_ATTRIBUTE_ANNOTATION = "ModelAttribute";
 
 	/**
 	 * 
@@ -299,6 +300,7 @@ public final class RestDocConstants {
 		 */
 		VALID,
 		VALIDATED,
+		MODEL_ATTRIBUTE,
 		/**
 		 * 
 		 */
@@ -346,6 +348,8 @@ public final class RestDocConstants {
 				return VALID;
 			} else if (VALIDATED_ANNOTATION.equals(annotationName)) {
 				return VALIDATED;
+			} else if (MODEL_ATTRIBUTE_ANNOTATION.equals(annotationName)) {
+				return REQUEST_PARAM;
 			} else if (PATH_VARIABLE_ANNOTATION.equals(annotationName)) {
 				return PATH_VARIABLE;
 			} else if (JSON_RESPONSE_EXAMPLE_ANNOTATION.equals(annotationName)) {
@@ -373,7 +377,8 @@ public final class RestDocConstants {
 			case REQUEST_MAPPING:
 				return DocRequestMappingAnnotation.class;
 			case REQUEST_PARAM:
-				return DocRequestParamAnnotation.class;
+			case MODEL_ATTRIBUTE:
+					return DocRequestParamAnnotation.class;
 			case JSON_REQUEST_EXAMPLE:
 				return DocJsonRequestExample.class;
 			case JSON_RESPONSE_EXAMPLE:

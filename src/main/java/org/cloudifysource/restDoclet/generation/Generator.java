@@ -20,9 +20,17 @@ import java.util.*;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import com.googlecode.htmlcompressor.compressor.HtmlCompressor;
 import com.sun.javadoc.*;
+import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.lang.StringUtils;
 import org.apache.commons.lang.ArrayUtils;
+import org.apache.http.HttpResponse;
+import org.apache.http.client.HttpClient;
+import org.apache.http.client.methods.HttpPost;
+import org.apache.http.entity.ContentType;
+import org.apache.http.entity.StringEntity;
+import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.velocity.Template;
 import org.apache.velocity.VelocityContext;
 import org.apache.velocity.app.Velocity;
@@ -77,6 +85,14 @@ public class Generator {
 	private static IRequestBodyParamFilter requestBodyParamFilter;
 	private static Set<ClassDoc> includeEnums = new HashSet<>();
 	private static List<String> paramStack = new ArrayList<>();
+
+	// Set to the Confluence base URL
+	private static final String CONFLUENCE_BASE_URL = "";
+	private static final String CONFLUENCE_REQUEST_URL = CONFLUENCE_BASE_URL + "/rest/api/content";
+	// Set to a Confluence space to upload the content to
+	private static final String CONFLUENCE_SPACE = "";
+	// Set to "username:password" string
+	private static final String CONFLUENCE_CREDENTIALS = "";
 
 	/**
 	 *
@@ -294,6 +310,8 @@ public class Generator {
 		// TRANSLATE DOC CLASSES INTO HTML DOCUMENTATION USING VELOCITY TEMPLATE
 		String generatedHtml = generateHtmlDocumentation(controllers, includeEnums);
 
+		uploadToConfluence(generatedHtml);
+
 		// WRITE GENERATED HTML TO A FILE
 		FileWriter velocityfileWriter = null;
 		try {
@@ -317,6 +335,71 @@ public class Generator {
 				velocityfileWriter.close();
 			}
 		}
+	}
+
+	/**
+	 * Upload content to Confluence
+	 */
+	public void uploadToConfluence(String content) {
+		HttpClient client = HttpClientBuilder.create().build();
+		HttpPost post;
+
+		HtmlCompressor compressor = new HtmlCompressor();
+		StringEntity input;
+		HttpResponse response;
+		String output = content;
+		String key;
+
+		if (CONFLUENCE_SPACE.isEmpty() || CONFLUENCE_BASE_URL.isEmpty() || CONFLUENCE_CREDENTIALS.isEmpty()) {
+			System.out.println("Warning: Cannot upload content to Confluene.\n" +
+					"Variables not set in the doclet: CONFLUENCE_SPACE, CONFLUENCE_BASE_URL and/or CONFLUENCE_CREDENTIALS.");
+			return;
+		}
+
+		// Prepare HTML for upload
+		//  * Minimize HTML
+		//  * Escape double quotes and line breaks
+		//  * Only sent contents of the body
+		output = compressor.compress(content);
+		output = output.replace("\"", "\\\"");
+		output = output.replace("\n", "\\n");
+		output = output.substring(output.indexOf("<body>") + 6, output.indexOf("</body>"));
+
+		// Get module name to use a title of page
+		key = System.getProperty("user.dir");
+		key = key.substring(0, key.indexOf("/target"));
+		key = key.substring(key.lastIndexOf("/") + 1);
+
+		// Upload to Confluence
+		input = new StringEntity("{\"type\":\"page\",\"title\":\""+ key + "\","
+				+ "\"space\":{\"key\":\"" + CONFLUENCE_SPACE + "\"},"
+				+ "\"body\":{\"storage\":{\"value\":\"" + output + "\",\"representation\":\"storage\"}}}",
+				ContentType.APPLICATION_JSON);
+		post = new HttpPost(CONFLUENCE_REQUEST_URL);
+		post.setHeader("Authorization", "Basic " + Base64.encodeBase64String(CONFLUENCE_CREDENTIALS.getBytes()));
+		post.setEntity(input);
+
+		try {
+			response = client.execute(post);
+			if (response.getStatusLine().getStatusCode() == 200) {
+				System.out.printf("Uploaded %s OK\n", key);
+			} else {
+				BufferedReader br = new BufferedReader(
+						new InputStreamReader((response.getEntity().getContent())));
+
+				System.out.println("Error uploading " + key);
+				System.out.println("Server response:");
+				String buffer;
+				while ((buffer = br.readLine()) != null) {
+					System.out.println(buffer);
+				}
+			}
+		} catch (Exception e) {
+			System.out.println("Issue uploading content to Confluence:");
+			e.printStackTrace();
+
+		}
+		post.releaseConnection();
 	}
 
 	/**
@@ -356,7 +439,7 @@ public class Generator {
 		while (i.hasNext()) {
 			ClassDoc doc = i.next();
 			l.add(doc);
-			enumList.add(doc.simpleTypeName());
+			enumList.add(doc.qualifiedTypeName());
 		}
 
 		ctx.put("controllers", controllers);
@@ -508,7 +591,7 @@ public class Generator {
 
 			if (methodArray == null || methodArray.length <= 0) {
 				// If we have a valid Request annotation, just assume it's a GET method
-				methodArray = new String[]{"GET"};
+				methodArray = new String[]{"GET", "POST"};
 				//continue;
 			}
 
@@ -557,8 +640,7 @@ public class Generator {
 			// get all URIs
 			String[] uriArray = requestMappingAnnotation.getValue();
 			if (uriArray == null || uriArray.length == 0) {
-				uriArray = new String[1];
-				uriArray[0] = "";
+				uriArray = new String[]{"/" + methodDoc.name()};
 			}
 			if (!docHttpMethodArray.isEmpty()) {
 				for (String uri : uriArray) {
@@ -643,7 +725,7 @@ public class Generator {
 	}
 
 	// Test for Java type
-	private static String[] blackList = {"LocalDate", "Jwt"};
+	private static String[] blackList = {"LocalDate", "Jwt", "SimpleDateFormat"};
 
 	private static boolean isJavaType(String typeName) {
 		String simpleTypeName = typeName.substring(typeName.lastIndexOf(".") + 1);
@@ -955,28 +1037,29 @@ public class Generator {
 			}
 		}
 
+		if (type.dimension().length() > 0) {
+			element = type;
+		}
+
 		// Recurse by element
-		if (element != null && (!isJavaType(element) || isJavaGenericClass(element))) {
+		if (element != null && (!isJavaType(element) || isJavaGenericClass(element)) && !element.isPrimitive()) {
 			List<DocParameter> list = generateSubParameters(element, name, annotations, parameterizedTypes, null);
 			list.remove(0);
 			paramsList.addAll(list);
-		} else if (!isJavaType(typeName) ) {
+		} else if (!isJavaType(typeName) && !type.isPrimitive()) {
 			// Recurse by fields for non-Java types
 			for (FieldDoc field : getFields(typeName)) {
 				if (field.constantValueExpression() != null) {
 					continue;
 				}
-				paramStack.add(typeName);
 				String fieldName = field.name();
 				if (name.length() > 0) {
 					fieldName = name + "." + fieldName;
 				}
 				paramsList.addAll(generateSubParameters(field.type(), fieldName, annotations, parameterizedTypes, field));
-				paramStack.remove(paramStack.size() - 1);
 			}
 		}
 		paramStack.remove(paramStack.size() - 1);
-
 		return paramsList;
 	}
 
@@ -987,7 +1070,6 @@ public class Generator {
 			String name = parameter.name();
 			Type paramType = findParameterizedType(parameter.type(), parameterizedTypes);
 			String paramStr = paramType.qualifiedTypeName();
-
 			if (paramStr.contains("HttpServletResponse")) {
 				continue;
 			}
@@ -1028,7 +1110,6 @@ public class Generator {
 		String name = returnType.qualifiedTypeName();
 
 		ParameterizedType pt = returnType.asParameterizedType();
-
 		if (name.contains("HttpStatus")) {
 			return new DocReturnDetails(returnType);
 		}

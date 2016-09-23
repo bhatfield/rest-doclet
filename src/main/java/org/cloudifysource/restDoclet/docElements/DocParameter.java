@@ -121,6 +121,9 @@ public class DocParameter {
 		StringBuilder currLocation = new StringBuilder();
 		for (DocAnnotation docAnnotation : annotations) {
 			String annotationName = docAnnotation.getName();
+			if (annotationName.equals(RestDocConstants.MODEL_ATTRIBUTE_ANNOTATION)) {
+				annotationName = RestDocConstants.REQUEST_PARAMS_ANNOTATION;
+			}
 			DocAnnotationTypes docAnnotationType = DocAnnotationTypes
 					.fromName(annotationName);
 			if (docAnnotationType == DocAnnotationTypes.REQUEST_PARAM) {
